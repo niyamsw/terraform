@@ -26,6 +26,7 @@ type ConcreteResourceNodeFunc func(*NodeAbstractResource) dag.Vertex
 // the given resource.
 type GraphNodeConfigResource interface {
 	ResourceAddr() addrs.ConfigResource
+	ActionAddrs() []addrs.ConfigAction
 }
 
 // ConcreteResourceInstanceNodeFunc is a callback type used to convert an
@@ -56,7 +57,7 @@ type NodeAbstractResource struct {
 
 	Schema *providers.Schema // Schema for processing the configuration body
 
-	// Config and RemovedConfig are mutally-exclusive, because a
+	// Config and RemovedConfig are mutually-exclusive, because a
 	// resource can't be both declared and removed at the same time.
 	Config        *configs.Resource // Config is the resource in the config, if any
 	RemovedConfig *configs.Removed  // RemovedConfig is the "removed" block for this resource, if any
@@ -92,6 +93,10 @@ type NodeAbstractResource struct {
 	// tests to clean up any created infrastructure regardless of this setting
 	// in the configuration.
 	overridePreventDestroy bool
+
+	// Set by GraphNodeAttachResourceConfig
+	ActionConfigs           addrs.Map[addrs.ConfigAction, *configs.Action]
+	resolvedActionProviders addrs.Map[addrs.ConfigAction, addrs.AbsProviderConfig]
 }
 
 var (
@@ -384,7 +389,7 @@ func (n *NodeAbstractResource) AttachProvisionerSchema(name string, schema *conf
 	n.ProvisionerSchemas[name] = schema
 }
 
-// GraphNodeResource
+// GraphNodeConfigResource
 func (n *NodeAbstractResource) ResourceAddr() addrs.ConfigResource {
 	return n.Addr
 }
@@ -403,6 +408,34 @@ func (n *NodeAbstractResource) AttachDataResourceDependsOn(deps []addrs.ConfigRe
 func (n *NodeAbstractResource) AttachResourceConfig(c *configs.Resource, rc *configs.Removed) {
 	n.Config = c
 	n.RemovedConfig = rc
+}
+
+// GraphNodeConfigResource
+func (n *NodeAbstractResource) ActionAddrs() []addrs.ConfigAction {
+	if n.Config == nil || n.Config.Managed == nil || n.Config.Managed.ActionTriggers == nil {
+		return nil
+	}
+
+	actions := make(map[string]addrs.ConfigAction)
+	for _, at := range n.Config.Managed.ActionTriggers {
+		for _, a := range at.Actions {
+			actions[a.ConfigAction.Action.String()] = a.ConfigAction
+		}
+	}
+
+	ret := make([]addrs.ConfigAction, 0, len(actions))
+	for _, v := range actions {
+		ret = append(ret, v)
+	}
+	return ret
+}
+
+// GraphNodeAttachResourceConfig
+func (n *NodeAbstractResource) AttachActionConfig(action addrs.ConfigAction, cfg *configs.Action) {
+	if n.ActionConfigs.Len() == 0 {
+		n.ActionConfigs = addrs.MakeMap[addrs.ConfigAction, *configs.Action]()
+	}
+	n.ActionConfigs.Put(action, cfg)
 }
 
 // GraphNodeAttachResourceSchema impl

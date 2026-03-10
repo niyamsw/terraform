@@ -66,6 +66,26 @@ func (n *nodePlannablePartialExpandedResource) ResourceAddr() addrs.ConfigResour
 	return n.addr.ConfigResource()
 }
 
+// ActionAddrs implements GraphNodeConfigResource.
+func (n *nodePlannablePartialExpandedResource) ActionAddrs() []addrs.ConfigAction {
+	if n.config == nil || n.config.Managed == nil || n.config.Managed.ActionTriggers == nil {
+		return nil
+	}
+
+	actions := make(map[string]addrs.ConfigAction)
+	for _, at := range n.config.Managed.ActionTriggers {
+		for _, a := range at.Actions {
+			actions[a.ConfigAction.Action.String()] = a.ConfigAction
+		}
+	}
+
+	ret := make([]addrs.ConfigAction, 0, len(actions))
+	for _, v := range actions {
+		ret = append(ret, v)
+	}
+	return ret
+}
+
 // Execute implements GraphNodeExecutable.
 func (n *nodePlannablePartialExpandedResource) Execute(ctx EvalContext, op walkOperation) tfdiags.Diagnostics {
 	// Because this node type implements [graphNodeEvalContextScope], the

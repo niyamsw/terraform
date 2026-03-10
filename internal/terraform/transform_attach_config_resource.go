@@ -21,6 +21,10 @@ type GraphNodeAttachResourceConfig interface {
 	// removed. Callers should always leave at least one of these
 	// arguments set to nil.
 	AttachResourceConfig(*configs.Resource, *configs.Removed)
+
+	// Attaches the configuration for any actions referenced in the resource's
+	// lifecycle block.
+	AttachActionConfig(addrs.ConfigAction, *configs.Action)
 }
 
 // AttachResourceConfigTransformer goes through the graph and attaches
@@ -86,6 +90,15 @@ func (t *AttachResourceConfigTransformer) Transform(g *Graph) error {
 				} else {
 					log.Printf("[TRACE] AttachResourceConfigTransformer: no provider meta configs available to attach to %s", dag.VertexName(v))
 				}
+			}
+		}
+
+		// Attach action configs
+		actions := arn.ActionAddrs()
+		for _, action := range actions {
+			if a := config.Module.ActionByAddr(action.Action); a != nil {
+				log.Printf("[TRACE] AttachResourceConfigTransformer: attaching to %q (%T) config from %#v", dag.VertexName(v), v, a.DeclRange)
+				arn.AttachActionConfig(action, a)
 			}
 		}
 	}
