@@ -2871,11 +2871,6 @@ func (m *Meta) savedStateStore(sMgr *clistate.LocalState, locks *depsfile.Locks)
 	// running provider instance inside the returned backend.Backend instance.
 	// Stopping the provider process is the responsibility of the calling code.
 
-	// FIXME: Here, if this code is being called in the context of upgrading the provider
-	// used for state storage, we'll accidentally get the schema of the newer provider version.
-	// This is due to caching the responses from GetProviderSchema per provider (so all versions point to same entry).
-	//
-	// We either need to bust the cache here, or update the cache to cache per-version
 	resp := provider.GetProviderSchema()
 
 	if len(resp.StateStores) == 0 {

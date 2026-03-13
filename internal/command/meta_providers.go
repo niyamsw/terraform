@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/apparentlymart/go-versions/versions"
 	"github.com/hashicorp/go-plugin"
 
 	"github.com/hashicorp/terraform/internal/addrs"
@@ -452,25 +451,23 @@ func providerFactory(meta *providercache.CachedProvider) providers.Factory {
 
 		// store the client so that the plugin can kill the child process
 		protoVer := client.NegotiatedVersion()
-		return finalizeFactoryPlugin(raw, protoVer, meta.Provider, meta.Version, client), nil
+		return finalizeFactoryPlugin(raw, protoVer, meta.Provider, client), nil
 	}
 }
 
 // finalizeFactoryPlugin completes the setup of a plugin dispensed by the rpc
 // client to be returned by the plugin factory.
-func finalizeFactoryPlugin(rawPlugin any, protoVersion int, addr addrs.Provider, version versions.Version, client *plugin.Client) providers.Interface {
+func finalizeFactoryPlugin(rawPlugin any, protoVersion int, addr addrs.Provider, client *plugin.Client) providers.Interface {
 	switch protoVersion {
 	case 5:
 		p := rawPlugin.(*tfplugin.GRPCProvider)
 		p.PluginClient = client
 		p.Addr = addr
-		p.Version = version
 		return p
 	case 6:
 		p := rawPlugin.(*tfplugin6.GRPCProvider)
 		p.PluginClient = client
 		p.Addr = addr
-		p.Version = version
 		return p
 	default:
 		panic("unsupported protocol version")
