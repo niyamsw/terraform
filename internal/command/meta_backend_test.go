@@ -2430,7 +2430,7 @@ func TestSavedStateStore(t *testing.T) {
 		}
 
 		// Code under test
-		b, diags := m.savedStateStore(sMgr, locks)
+		b, diags := m.savedStateStore(sMgr, locks, false)
 		if diags.HasErrors() {
 			t.Fatalf("unexpected errors: %s", diags.Err())
 		}
@@ -2474,7 +2474,7 @@ func TestSavedStateStore(t *testing.T) {
 			t.Fatal(dDiags.Err())
 		}
 
-		_, diags := m.savedStateStore(sMgr, locks)
+		_, diags := m.savedStateStore(sMgr, locks, false)
 		if !diags.HasErrors() {
 			t.Fatal("expected errors but got none")
 		}
@@ -2516,7 +2516,7 @@ func TestSavedStateStore(t *testing.T) {
 			t.Fatal(dDiags.Err())
 		}
 
-		_, diags := m.savedStateStore(sMgr, locks)
+		_, diags := m.savedStateStore(sMgr, locks, false)
 		if !diags.HasErrors() {
 			t.Fatal("expected errors but got none")
 		}
