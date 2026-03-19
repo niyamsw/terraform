@@ -205,6 +205,15 @@ func (b *Block) NestedBlocks(blockType string) []*Block {
 	return result
 }
 
+// AllNestedBlocks returns all immediate child blocks regardless of type.
+func (b *Block) AllNestedBlocks() []*Block {
+	var result []*Block
+	for _, child := range b.block.Body().Blocks() {
+		result = append(result, &Block{block: child})
+	}
+	return result
+}
+
 // traversalToNames converts an hcl.Traversal to the []string format
 // expected by hclwrite.Expression.RenameVariablePrefix.
 func traversalToNames(t hcl.Traversal) []string {

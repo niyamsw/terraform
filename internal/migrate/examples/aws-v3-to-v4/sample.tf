@@ -25,8 +25,8 @@ resource "aws_s3_bucket" "assets" {
     }
   }
 
-  # v4 removes the acl argument from aws_s3_bucket.
-  # Must be migrated to a separate aws_s3_bucket_acl resource.
+  # v4 extracts the acl argument from aws_s3_bucket into a standalone
+  # aws_s3_bucket_acl resource.
   acl = "private"
 }
 

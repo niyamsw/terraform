@@ -71,12 +71,20 @@ func TestExamples_AWS_v3to4(t *testing.T) {
 		t.Error("expected aws_s3_bucket_versioning resource extracted")
 	}
 
-	// acl should be removed with FIXME comment
-	if strings.Contains(got, `acl = "private"`) {
-		t.Error("expected acl attribute removed")
+	// acl should be extracted to a standalone aws_s3_bucket_acl resource
+	if !strings.Contains(got, `resource "aws_s3_bucket_acl" "assets"`) {
+		t.Error("expected aws_s3_bucket_acl resource extracted")
 	}
-	if !strings.Contains(got, "FIXME") {
-		t.Error("expected FIXME comment for acl removal")
+
+	// server_side_encryption_configuration should be extracted with nested blocks
+	if !strings.Contains(got, `resource "aws_s3_bucket_server_side_encryption_configuration" "assets"`) {
+		t.Error("expected aws_s3_bucket_server_side_encryption_configuration resource extracted")
+	}
+	if !strings.Contains(got, "rule {") {
+		t.Error("expected rule block preserved in extracted server_side_encryption resource")
+	}
+	if !strings.Contains(got, "apply_server_side_encryption_by_default {") {
+		t.Error("expected nested apply_server_side_encryption_by_default block preserved")
 	}
 }
 

@@ -397,6 +397,83 @@ output "bucket_id" {
 	}
 }
 
+func TestExecute_extractToResource_attribute(t *testing.T) {
+	src := `resource "aws_s3_bucket" "main" {
+  bucket = "my-bucket"
+  acl    = "private"
+}
+`
+	m := &Migration{
+		Name:  "test/extract_attr",
+		Match: Match{BlockType: "resource", Label: "aws_s3_bucket"},
+		Actions: []Action{
+			{Action: "extract_to_resource", Name: "acl", To: "aws_s3_bucket_acl", WireAttribute: "bucket", WireTraversal: "id"},
+		},
+	}
+
+	got := executeMigration(t, m, src)
+	if !strings.Contains(got, `resource "aws_s3_bucket_acl" "main"`) {
+		t.Errorf("expected new resource created, got:\n%s", got)
+	}
+	if !strings.Contains(got, "aws_s3_bucket.main.id") {
+		t.Errorf("expected wiring attribute, got:\n%s", got)
+	}
+	// The new resource should contain the acl attribute (hclwrite may preserve original spacing)
+	newResIdx := strings.Index(got, "aws_s3_bucket_acl")
+	if newResIdx < 0 {
+		t.Fatalf("expected aws_s3_bucket_acl resource, got:\n%s", got)
+	}
+	newResPart := got[newResIdx:]
+	if !strings.Contains(newResPart, `"private"`) {
+		t.Errorf("expected acl value in new resource, got:\n%s", got)
+	}
+	// acl should be removed from original bucket block
+	origPart := got[:newResIdx]
+	if strings.Contains(origPart, `"private"`) {
+		t.Errorf("expected acl removed from original bucket, got:\n%s", got)
+	}
+}
+
+func TestExecute_extractToResource_nestedBlocks(t *testing.T) {
+	src := `resource "aws_s3_bucket" "main" {
+  bucket = "my-bucket"
+
+  server_side_encryption_configuration {
+    rule {
+      apply_server_side_encryption_by_default {
+        sse_algorithm = "aws:kms"
+      }
+    }
+  }
+}
+`
+	m := &Migration{
+		Name:  "test/extract_sse",
+		Match: Match{BlockType: "resource", Label: "aws_s3_bucket"},
+		Actions: []Action{
+			{Action: "extract_to_resource", Name: "server_side_encryption_configuration", To: "aws_s3_bucket_server_side_encryption_configuration", WireAttribute: "bucket", WireTraversal: "id"},
+		},
+	}
+
+	got := executeMigration(t, m, src)
+	if !strings.Contains(got, `resource "aws_s3_bucket_server_side_encryption_configuration" "main"`) {
+		t.Errorf("expected new resource created, got:\n%s", got)
+	}
+	if !strings.Contains(got, "rule {") {
+		t.Errorf("expected rule block copied to new resource, got:\n%s", got)
+	}
+	if !strings.Contains(got, "apply_server_side_encryption_by_default {") {
+		t.Errorf("expected nested block copied, got:\n%s", got)
+	}
+	if !strings.Contains(got, `sse_algorithm = "aws:kms"`) {
+		t.Errorf("expected sse_algorithm attribute copied, got:\n%s", got)
+	}
+	// Original block should be removed
+	if strings.Contains(got, "server_side_encryption_configuration {") {
+		t.Errorf("expected server_side_encryption_configuration block removed from original, got:\n%s", got)
+	}
+}
+
 func TestExecute_moveAttributeToBlock(t *testing.T) {
 	src := `resource "aws_instance" "web" {
   ami                  = "abc-123"

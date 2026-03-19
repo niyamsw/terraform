@@ -268,10 +268,44 @@ func executeAction(a Action, r *ast.BlockResult, mod *ast.Module) error {
 		}
 
 	case "extract_to_resource":
+		labels := r.Block.Labels()
+		if len(labels) < 2 {
+			return fmt.Errorf("extract_to_resource: block needs at least 2 labels")
+		}
+
 		nested := r.Block.NestedBlocks(a.Name)
 		if len(nested) == 0 {
+			// Check if it's an attribute instead of a nested block
+			expr := r.Block.GetAttributeExpression(a.Name)
+			if expr == nil {
+				return nil
+			}
+			tokens := expr.BuildTokens(nil)
+
+			// Remove from parent
+			r.Block.RemoveAttribute(a.Name)
+
+			// Create new resource with same instance name
+			newBlock := r.File.AddBlock("resource", []string{a.To, labels[1]})
+
+			// Add wiring attribute if specified
+			if a.WireAttribute != "" {
+				suffix := a.WireTraversal
+				if suffix == "" {
+					suffix = "id"
+				}
+				newBlock.SetAttributeTraversal(a.WireAttribute, hcl.Traversal{
+					hcl.TraverseRoot{Name: labels[0]},
+					hcl.TraverseAttr{Name: labels[1]},
+					hcl.TraverseAttr{Name: suffix},
+				})
+			}
+
+			// Set the attribute on the new resource
+			newBlock.SetAttributeRaw(a.Name, tokens)
 			return nil
 		}
+
 		// Read attributes from the nested block
 		attrs := nested[0].Attributes()
 
@@ -279,10 +313,6 @@ func executeAction(a Action, r *ast.BlockResult, mod *ast.Module) error {
 		r.Block.RemoveBlock(a.Name)
 
 		// Create new resource with same instance name
-		labels := r.Block.Labels()
-		if len(labels) < 2 {
-			return fmt.Errorf("extract_to_resource: block needs at least 2 labels")
-		}
 		newBlock := r.File.AddBlock("resource", []string{a.To, labels[1]})
 
 		// Add wiring attribute if specified
@@ -302,6 +332,9 @@ func executeAction(a Action, r *ast.BlockResult, mod *ast.Module) error {
 		for name, expr := range attrs {
 			newBlock.SetAttributeRaw(name, expr.BuildTokens(nil))
 		}
+
+		// Copy nested blocks from the extracted block
+		copyNestedBlocks(nested[0], newBlock)
 
 	case "move_attribute_to_block":
 		expr := r.Block.GetAttributeExpression(a.Name)
@@ -364,6 +397,17 @@ func executeAction(a Action, r *ast.BlockResult, mod *ast.Module) error {
 		return fmt.Errorf("unknown action %q", a.Action)
 	}
 	return nil
+}
+
+// copyNestedBlocks recursively copies all child blocks from src to dst.
+func copyNestedBlocks(src, dst *ast.Block) {
+	for _, child := range src.AllNestedBlocks() {
+		newChild := dst.AddBlock(child.Type())
+		for name, expr := range child.Attributes() {
+			newChild.SetAttributeRaw(name, expr.BuildTokens(nil))
+		}
+		copyNestedBlocks(child, newChild)
+	}
 }
 
 // parseValue converts a string to a cty.Value.

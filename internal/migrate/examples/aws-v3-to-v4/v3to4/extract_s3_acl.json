@@ -1,6 +1,6 @@
 {
     "name": "v3to4/extract_s3_acl",
-    "description": "Extract acl argument from aws_s3_bucket, move to aws_s3_bucket_acl. See: https://github.com/hashicorp/terraform-provider-aws/blob/main/website/docs/guides/version-4-upgrade.html.markdown#s3-bucket-refactor",
+    "description": "Extract acl argument from aws_s3_bucket to standalone aws_s3_bucket_acl resource. See: https://github.com/hashicorp/terraform-provider-aws/blob/main/website/docs/guides/version-4-upgrade.html.markdown#s3-bucket-refactor",
     "match": {
         "block_type": "resource",
         "label": "aws_s3_bucket"
@@ -12,10 +12,6 @@
             "to": "aws_s3_bucket_acl",
             "wire_attribute": "bucket",
             "wire_traversal": "id"
-        },
-        {
-            "action": "remove_attribute",
-            "name": "acl"
         }
     ]
 }
