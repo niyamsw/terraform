@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/hashicorp/cli"
+	"github.com/hashicorp/hcl/v2"
 
 	"github.com/hashicorp/terraform/internal/addrs"
 	"github.com/hashicorp/terraform/internal/backend"
@@ -24,6 +27,7 @@ import (
 	"github.com/hashicorp/terraform/internal/states/statefile"
 	"github.com/hashicorp/terraform/internal/states/statemgr"
 	"github.com/hashicorp/terraform/internal/terminal"
+	"github.com/hashicorp/terraform/internal/tfdiags"
 )
 
 func TestWorkspace_allCommands_pluggableStateStore(t *testing.T) {
@@ -1405,4 +1409,190 @@ func TestWorkspace_humanOutputWithColor(t *testing.T) {
 	if actual != expectedOutput {
 		t.Fatalf("want: %s\ngot: %s", expectedOutput, actual)
 	}
+}
+
+func TestWorkspace_list_jsonOutput(t *testing.T) {
+	// Create a temporary working directory with pluggable state storage in the config
+	td := t.TempDir()
+	testCopyDir(t, testFixturePath("state-store-unchanged"), td)
+	t.Chdir(td)
+
+	// Using PSS in this test allows easy mocking of pre-existing workspaces
+	mock := testStateStoreMockWithChunkNegotiation(t, 1000)
+	mock.GetStatesResponse = &providers.GetStatesResponse{
+		States:      []string{"default", "dev", "stage", "prod"},
+		Diagnostics: nil,
+	}
+
+	ui := new(cli.MockUi)
+	view, done := testView(t)
+	meta := Meta{
+		AllowExperimentalFeatures: true,
+		Ui:                        ui,
+		View:                      view,
+		testingOverrides: &testingOverrides{
+			Providers: map[addrs.Provider]providers.Factory{
+				addrs.NewDefaultProvider("test"): providers.FactoryFixed(mock),
+			},
+		},
+	}
+
+	// All commands run in this test should receive the -json flag
+	args := []string{"-json"}
+
+	// Step 1 - test list output with no diagnostics
+	listCmd := &WorkspaceListCommand{
+		Meta: meta,
+	}
+	if code := listCmd.Run(args); code != 0 {
+		t.Fatalf("bad: %d\n\n%s", code, done(t).Stderr())
+	}
+	output := done(t)
+	expectedStdOut := `{
+  "workspaces": [
+    {
+      "name": "default",
+      "is_current": true
+    },
+    {
+      "name": "dev",
+      "is_current": false
+    },
+    {
+      "name": "stage",
+      "is_current": false
+    },
+    {
+      "name": "prod",
+      "is_current": false
+    }
+  ],
+  "diagnostics": []
+}
+`
+	if output.Stdout() != expectedStdOut {
+		diff := cmp.Diff(expectedStdOut, output.Stdout())
+		t.Fatalf("want: %s\ngot: %s\n diff: %s",
+			expectedStdOut,
+			output.Stdout(),
+			diff,
+		)
+	}
+	if output.Stderr() != "" {
+		t.Fatalf("expected stderr to be empty, but got: %s", output.Stderr())
+	}
+
+	// Step 2 - test list output with a warning diagnostics
+	var diags tfdiags.Diagnostics
+	diags = diags.Append(&hcl.Diagnostic{
+		Severity: hcl.DiagWarning,
+		Summary:  "Warning from test",
+		Detail:   "This is a warning from the mocked state store.",
+	})
+	mock.GetStatesResponse = &providers.GetStatesResponse{
+		States:      []string{"default", "dev", "stage", "prod"},
+		Diagnostics: diags,
+	}
+
+	view, done = testView(t)
+	meta.View = view
+	listCmd = &WorkspaceListCommand{
+		Meta: meta,
+	}
+	if code := listCmd.Run(args); code != 0 {
+		t.Fatalf("bad: %d\n\n%s", code, done(t).Stderr())
+	}
+	output = done(t)
+	expectedStdOut = `{
+  "workspaces": [
+    {
+      "name": "default",
+      "is_current": true
+    },
+    {
+      "name": "dev",
+      "is_current": false
+    },
+    {
+      "name": "stage",
+      "is_current": false
+    },
+    {
+      "name": "prod",
+      "is_current": false
+    }
+  ],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "summary": "Warning from test",
+      "detail": "This is a warning from the mocked state store."
+    }
+  ]
+}
+`
+	if output.Stdout() != expectedStdOut {
+		diff := cmp.Diff(expectedStdOut, output.Stdout())
+		t.Fatalf("want: %s\ngot: %s\n diff: %s",
+			expectedStdOut,
+			output.Stdout(),
+			diff,
+		)
+	}
+	processedStdErr := redactJSONLogTimestampForTests(t, output.Stderr())
+	if processedStdErr != "" {
+		t.Fatalf("expected stderr to be empty, but got: %s", output.Stderr())
+	}
+
+	// Step 3 - test that error diagnostics are shown in isolation (no additional output even if present)
+	diags = tfdiags.Diagnostics{} // empty
+	diags = diags.Append(&hcl.Diagnostic{
+		Severity: hcl.DiagError,
+		Summary:  "Error from test",
+		Detail:   "This is a error from the mocked state store.",
+	})
+	mock.GetStatesResponse = &providers.GetStatesResponse{
+		States:      []string{"default", "dev", "stage", "prod"},
+		Diagnostics: diags,
+	}
+
+	view, done = testView(t)
+	meta.View = view
+	listCmd = &WorkspaceListCommand{
+		Meta: meta,
+	}
+	if code := listCmd.Run(args); code != 1 {
+		t.Fatalf("expected a failure with code 1, but got: %d\n\n%s", code, done(t).All())
+	}
+	output = done(t)
+	expectedStdOut = `{
+  "workspaces": [],
+  "diagnostics": [
+    {
+      "severity": "error",
+      "summary": "Error from test",
+      "detail": "This is a error from the mocked state store."
+    }
+  ]
+}
+`
+	if output.Stdout() != expectedStdOut {
+		t.Fatalf("want: %s\ngot: %s",
+			expectedStdOut,
+			output.Stdout(),
+		)
+	}
+	if output.Stderr() != "" {
+		t.Fatalf("expected stderr to be empty, but got: %s", output.Stderr())
+	}
+}
+
+// redactLogTimestampForTests converts all `@timestamp` values from JSON logs into "TIMESTAMP_REDACTED".
+// Any expected log contents in tests will need to set the timestamp value to a matching string before
+// asserting equality.
+func redactJSONLogTimestampForTests(t *testing.T, output string) string {
+	t.Helper()
+	timestampRegexp := regexp.MustCompile(`"@timestamp":"[0-9-T:.Z]+"`)
+	v := timestampRegexp.ReplaceAll([]byte(output), []byte(`"@timestamp":"TIMESTAMP_REDACTED"`))
+	return string(v)
 }
