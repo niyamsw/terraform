@@ -18,6 +18,7 @@ import (
 	"github.com/hashicorp/terraform/internal/genconfig"
 	"github.com/hashicorp/terraform/internal/instances"
 	"github.com/hashicorp/terraform/internal/lang/ephemeral"
+	"github.com/hashicorp/terraform/internal/lang/langrefs"
 	"github.com/hashicorp/terraform/internal/moduletest/mocking"
 	"github.com/hashicorp/terraform/internal/plans"
 	"github.com/hashicorp/terraform/internal/plans/deferring"
@@ -200,13 +201,10 @@ func (n *NodePlannableResourceInstance) managedResourceExecute(ctx EvalContext) 
 		}
 	}
 
-	importing := n.importTarget != cty.NilVal && !n.preDestroyRefresh
-
 	var deferred *providers.Deferred
-
+	importing := n.importTarget != cty.NilVal && !n.preDestroyRefresh
 	// If the resource is to be imported, we now ask the provider for an Import
 	// and a Refresh, and save the resulting state to instanceRefreshState.
-
 	if importing {
 		if n.importTarget.IsWhollyKnown() {
 			var importDiags tfdiags.Diagnostics
@@ -480,6 +478,11 @@ func (n *NodePlannableResourceInstance) managedResourceExecute(ctx EvalContext) 
 				if diags.HasErrors() {
 					return diags
 				}
+			}
+
+			// Now that we (maybe) have a change, we can plan any configured actions
+			if change.Action != plans.NoOp {
+				n.planActions(ctx, change)
 			}
 
 			// Post-conditions might block completion. We intentionally do this
@@ -1040,6 +1043,95 @@ func (n *NodePlannableResourceInstance) generateResourceConfig(ctx EvalContext, 
 	return genconfig.ExtractLegacyConfigFromState(schema.Body, state), diags
 }
 
+func (n *NodePlannableResourceInstance) planActions(ctx EvalContext, change *plans.ResourceInstanceChange) tfdiags.Diagnostics {
+	// Get all triggers that include this event (before and after).
+	// This includes create triggers for actions such as "createBeforeDelete" (but no delete yet)
+	before, _ := n.triggersForEvent(change.Action)
+	var diags tfdiags.Diagnostics
+	// we don't need to worry about planning actions in configured order, as
+	// long as they are shown to the user and applied in order (we don't get new
+	// planned values from the provider for actions).
+	for _, trigger := range before {
+		if trigger.Condition != nil {
+			condition, condDiags := n.evaluateActionCondition(ctx, trigger)
+			diags = diags.Append(condDiags)
+			if condDiags.HasErrors() {
+				return diags
+			}
+
+			if !condition {
+				continue
+			}
+		} else {
+			n.planTriggeredActions(trigger.Actions)
+		}
+	}
+
+	// provider, schema, err := getProvider(ctx, n.resolvedProvider)
+	// if err != nil {
+	// 	diags = diags.Append(&hcl.Diagnostic{
+	// 		Severity: hcl.DiagError,
+	// 		Summary:  "Failed to get provider",
+	// 		Detail:   fmt.Sprintf("Failed to get provider: %s", err),
+	// 		Subject:  n.lifecycleActionTrigger.invokingSubject,
+	// 	})
+
+	// 	return diags
+	// }
+	// actionSchema := schema.Actions[n.actionConfig.Type]
+
+	// expander := ctx.InstanceExpander()
+	// if !expander.AllInstances().HasActionInstance(n.actionAddress) {
+	// 	diags = diags.Append(&hcl.Diagnostic{
+	// 		Severity: hcl.DiagError,
+	// 		Summary:  "Reference to non-existent action instance",
+	// 		Detail:   "Action instance was not found in the current context.",
+	// 		Subject:  n.lifecycleActionTrigger.invokingSubject,
+	// 	})
+	// 	return diags
+	// }
+
+	return nil
+}
+
+// triggersForEvent returns all configured before and after action triggers which correspond to the given plans.Action.
+// The trigger index is used for the map key, so that the map can be sorted while also retaining the trigger index.
+func (n *NodePlannableResourceInstance) triggersForEvent(tfAction plans.Action) (before, after map[int]*configs.ActionTrigger) {
+	if n.Config == nil || n.Config.Managed == nil || n.Config.Managed.ActionTriggers == nil {
+		return nil, nil
+	}
+
+	beforeTriggers := make(map[int]*configs.ActionTrigger, 0)
+	afterTriggers := make(map[int]*configs.ActionTrigger, 0)
+
+	for i, trigger := range n.Config.Managed.ActionTriggers {
+		for _, event := range trigger.Events {
+			switch event {
+			case configs.BeforeCreate:
+				if tfAction.IsReplace() || tfAction == plans.Create {
+					beforeTriggers[i] = trigger
+				}
+			case configs.BeforeUpdate:
+				if tfAction == plans.Update {
+					beforeTriggers[i] = trigger
+				}
+			case configs.AfterCreate:
+				if tfAction.IsReplace() || tfAction == plans.Create {
+					afterTriggers[i] = trigger
+				}
+			case configs.AfterUpdate:
+				if tfAction == plans.Update {
+					afterTriggers[i] = trigger
+				}
+			default: // should not be possible, the above list is meant to be exhaustive and invalid events should have been caught by now
+				panic("unknown event")
+			}
+		}
+	}
+
+	return beforeTriggers, afterTriggers
+}
+
 // mergeDeps returns the union of 2 sets of dependencies
 func mergeDeps(a, b []addrs.ConfigResource) []addrs.ConfigResource {
 	switch {
@@ -1124,4 +1216,93 @@ func actionIsTriggeredByEvent(events []configs.ActionTriggerEvent, action plans.
 		}
 	}
 	return triggeredEvents
+}
+
+// FIXME: replace this with a more reusable version of evaluateActionCondition from node_action_trigger_instance_plan
+func (n *NodePlannableResourceInstance) evaluateActionCondition(ctx EvalContext, trigger *configs.ActionTrigger) (bool, tfdiags.Diagnostics) {
+	var diags tfdiags.Diagnostics
+
+	rd := instances.RepetitionData{}
+	refs, refDiags := langrefs.ReferencesInExpr(addrs.ParseRef, trigger.Condition)
+	diags = diags.Append(refDiags)
+	if diags.HasErrors() {
+		return false, diags
+	}
+
+	for _, ref := range refs {
+		if ref.Subject == addrs.Self {
+			diags = diags.Append(&hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Self reference not allowed",
+				Detail:   `The condition expression cannot reference "self".`,
+				Subject:  trigger.Condition.Range().Ptr(),
+			})
+		}
+	}
+
+	if diags.HasErrors() {
+		return false, diags
+	}
+
+	if containsBeforeEvent(trigger.Events) {
+		// If events contains a before event we want to error if count or each is used
+		for _, ref := range refs {
+			if _, ok := ref.Subject.(addrs.CountAttr); ok {
+				diags = diags.Append(&hcl.Diagnostic{
+					Severity: hcl.DiagError,
+					Summary:  "Count reference not allowed",
+					Detail:   `The condition expression cannot reference "count" if the action is run before the resource is applied.`,
+					Subject:  trigger.Condition.Range().Ptr(),
+				})
+			}
+
+			if _, ok := ref.Subject.(addrs.ForEachAttr); ok {
+				diags = diags.Append(&hcl.Diagnostic{
+					Severity: hcl.DiagError,
+					Summary:  "Each reference not allowed",
+					Detail:   `The condition expression cannot reference "each" if the action is run before the resource is applied.`,
+					Subject:  trigger.Condition.Range().Ptr(),
+				})
+			}
+
+			if diags.HasErrors() {
+				return false, diags
+			}
+		}
+	} else {
+		// If there are only after events we allow self, count, and each
+		expander := ctx.InstanceExpander()
+		rd = expander.GetResourceInstanceRepetitionData(n.Addr)
+	}
+
+	scope := ctx.EvaluationScope(nil, nil, rd)
+	val, conditionEvalDiags := scope.EvalExpr(trigger.Condition, cty.Bool)
+	diags = diags.Append(conditionEvalDiags)
+	if diags.HasErrors() {
+		return false, diags
+	}
+
+	if !val.IsWhollyKnown() {
+		diags = diags.Append(&hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  "Condition must be known",
+			Detail:   "The condition expression resulted in an unknown value, but it must be a known boolean value.",
+			Subject:  trigger.Condition.Range().Ptr(),
+		})
+		return false, diags
+	}
+
+	return val.True(), nil
+}
+
+// planTriggeredActions plans and records planned actions for every action listed. The caller is responsible for checking that the action condition is true.
+func (n *NodePlannableResourceInstance) planTriggeredActions(actionRefs []configs.ActionRef) tfdiags.Diagnostics {
+	var diags tfdiags.Diagnostics
+
+	for _, actionRef := range actionRefs {
+		// get the action config from the action ref
+		fmt.Println(actionRef)
+	}
+
+	return diags
 }
