@@ -70,6 +70,10 @@ const (
 type ActionRef struct {
 	Expr  hcl.Expression
 	Range hcl.Range
+
+	// an action ref gets a copy of the actual action config as well. We keep
+	// both since the ref expression won't be fully evaluated until later.
+	Action *Action
 }
 
 func decodeActionTriggerBlock(block *hcl.Block) (*ActionTrigger, hcl.Diagnostics) {

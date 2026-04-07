@@ -110,10 +110,12 @@ func TestDecodeActionTriggerBlock(t *testing.T) {
 					{
 						fooActionExpr,
 						fooActionExpr.Range(),
+						nil,
 					},
 					{
 						barActionExpr,
 						barActionExpr.Range(),
+						nil,
 					},
 				},
 			},
@@ -189,6 +191,7 @@ func TestDecodeActionTriggerBlock(t *testing.T) {
 					{
 						fooActionExpr,
 						fooActionExpr.Range(),
+						nil,
 					},
 				},
 			},
@@ -215,6 +218,7 @@ func TestDecodeActionTriggerBlock(t *testing.T) {
 					{
 						fooActionExpr,
 						fooActionExpr.Range(),
+						nil,
 					},
 				},
 			},
@@ -240,6 +244,7 @@ func TestDecodeActionTriggerBlock(t *testing.T) {
 					{
 						fooActionExpr,
 						fooActionExpr.Range(),
+						nil,
 					},
 				},
 			},
@@ -265,6 +270,7 @@ func TestDecodeActionTriggerBlock(t *testing.T) {
 					{
 						fooActionExpr,
 						fooActionExpr.Range(),
+						nil,
 					},
 				},
 			},
@@ -290,6 +296,7 @@ func TestDecodeActionTriggerBlock(t *testing.T) {
 					{
 						fooActionExpr,
 						fooActionExpr.Range(),
+						nil,
 					},
 				},
 			},
