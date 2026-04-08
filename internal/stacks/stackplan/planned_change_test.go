@@ -119,6 +119,10 @@ func TestPlannedChangeAsProto(t *testing.T) {
 				},
 				Action:        plans.Create,
 				PlanTimestamp: fakePlanTimestamp,
+				PlannedOutputValues: map[string]cty.Value{
+					"hello":        cty.StringVal("world"),
+					"goal_of_life": cty.UnknownVal(cty.String),
+				},
 			},
 			Want: &stacks.PlannedChange{
 				Raw: []*anypb.Any{
@@ -126,6 +130,18 @@ func TestPlannedChangeAsProto(t *testing.T) {
 						ComponentInstanceAddr: "component.foo",
 						PlanTimestamp:         "2017-03-27T10:00:00-08:00",
 						PlannedAction:         planproto.Action_CREATE,
+						PlannedOutputValues: map[string]*tfstackdata1.DynamicValue{
+							"hello": &tfstackdata1.DynamicValue{
+								Value: &planproto.DynamicValue{
+									Msgpack: []byte(`\x92\xc4\b\"world\"\xd4\x00\x00`),
+								},
+							},
+							"goal_of_life": &tfstackdata1.DynamicValue{
+								Value: &planproto.DynamicValue{
+									Msgpack: []byte(`\x92\xc4\b\"string\"\xd4\x00\x00`),
+								},
+							},
+						},
 					}),
 				},
 				Descriptions: []*stacks.PlannedChange_ChangeDescription{
@@ -137,6 +153,14 @@ func TestPlannedChangeAsProto(t *testing.T) {
 									ComponentInstanceAddr: "component.foo",
 								},
 								Actions: []stacks.ChangeType{stacks.ChangeType_CREATE},
+								OutputValues: map[string]*stacks.DynamicValue{
+									"hello": &stacks.DynamicValue{
+										Msgpack: mustMsgPack(t, cty.StringVal("world")),
+									},
+									"goal_of_life": &stacks.DynamicValue{
+										Msgpack: mustMsgPack(t, cty.UnknownVal(cty.String)),
+									},
+								},
 							},
 						},
 					},
@@ -154,6 +178,10 @@ func TestPlannedChangeAsProto(t *testing.T) {
 				},
 				Action:        plans.NoOp,
 				PlanTimestamp: fakePlanTimestamp,
+				PlannedOutputValues: map[string]cty.Value{
+					"hello":        cty.StringVal("world"),
+					"goal_of_life": cty.UnknownVal(cty.String),
+				},
 			},
 			Want: &stacks.PlannedChange{
 				Raw: []*anypb.Any{
@@ -170,6 +198,14 @@ func TestPlannedChangeAsProto(t *testing.T) {
 								Addr: &stacks.ComponentInstanceInStackAddr{
 									ComponentAddr:         "component.foo",
 									ComponentInstanceAddr: `component.foo["bar"]`,
+								},
+								OutputValues: map[string]*stacks.DynamicValue{
+									"hello": &stacks.DynamicValue{
+										Msgpack: mustMsgPack(t, cty.StringVal("world")),
+									},
+									"goal_of_life": &stacks.DynamicValue{
+										Msgpack: mustMsgPack(t, cty.UnknownVal(cty.String)),
+									},
 								},
 							},
 						},
