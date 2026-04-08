@@ -110,13 +110,13 @@ func (c *WorkspaceListCommand) Synopsis() string {
 	return "List Workspaces"
 }
 
-type workspaceHuman struct {
+type workspaceListHuman struct {
 	ui   cli.Ui
 	meta *Meta
 }
 
 // List is used to assemble the list of Workspaces and log it via Output
-func (v *workspaceHuman) List(selected string, list []string, diags tfdiags.Diagnostics) {
+func (v *workspaceListHuman) List(selected string, list []string, diags tfdiags.Diagnostics) {
 	// Print diags above output
 	v.meta.showDiagnostics(diags)
 
@@ -135,16 +135,16 @@ func (v *workspaceHuman) List(selected string, list []string, diags tfdiags.Diag
 	}
 }
 
-// newWorkspace returns a views.Workspace interface.
+// newWorkspaceList returns a views.WorkspaceList interface.
 //
 // When human-readable output is migrated from cli.Ui to views.View this method should be deleted and
-// replaced with using views.NewWorkspace directly.
+// replaced with using views.NewWorkspaceList directly.
 func newWorkspaceList(vt arguments.ViewType, view *views.View, ui cli.Ui, meta *Meta) views.WorkspaceList {
 	switch vt {
 	case arguments.ViewJSON:
 		return views.NewWorkspaceList(vt, view)
 	case arguments.ViewHuman:
-		return &workspaceHuman{
+		return &workspaceListHuman{
 			ui:   ui,
 			meta: meta,
 		}

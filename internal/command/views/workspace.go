@@ -92,6 +92,9 @@ func (v *WorkspaceJSON) List(current string, list []string, diags tfdiags.Diagno
 
 // The WorkspaceHuman implementation renders human-readable text logs, suitable for
 // a scrolling terminal.
+//
+// This is currently not used, but is implemented here for when we remove use of
+// workspaceListHuman in the command package.
 type WorkspaceHuman struct {
 	view *View
 }
