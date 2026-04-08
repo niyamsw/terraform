@@ -42,11 +42,6 @@ type WorkspaceJSON struct {
 
 var _ WorkspaceList = (*WorkspaceJSON)(nil)
 
-// Diagnostics renders a list of diagnostics, including the option for compact warnings.
-func (v *WorkspaceJSON) Diagnostics(diags tfdiags.Diagnostics) {
-	v.view.Diagnostics(diags)
-}
-
 type WorkspaceListOutput struct {
 	Workspaces  []WorkspaceOutput       `json:"workspaces"`
 	Diagnostics []*viewsjson.Diagnostic `json:"diagnostics"`
